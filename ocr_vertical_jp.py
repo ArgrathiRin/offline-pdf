@@ -6,15 +6,21 @@
 処理は中断しても、同じコマンドで続きから再開できる。
 
 使い方:
-  python3 -I ocr_vertical_jp.py book.pdf --out book_ocr
-  -> book_ocr.txt(ページ番号 [p.N] 付き)と book_ocr.pdf(検索可能PDF)ができる。
+  python3 -I ocr_vertical_jp.py ~/Desktop/book.pdf --book 本の名前
+  -> 次の置き場に自動で整理される(--book を省くとPDFのファイル名が本の名前になる)。
+       ~/Documents/書籍分析/<本の名前>/
+         01_原本/      元のPDF(デスクトップ等から移動する。--copy ならコピー)
+         02_OCR結果/   <名前>_ocr.txt(ページ番号 [p.N] 付き)と <名前>_ocr.pdf(検索可能PDF)
+         99_作業用/    途中ファイル(不要になったら消してよい)
+  途中で止まっても、同じコマンドで続きから再開できる。
+  置き場を使わず、出力先を自分で決めるときは --out 出力名 を付ける。
 
 準備(Macの場合):
   brew install tesseract poppler
   tessdata フォルダに jpn / jpn_vert / eng / osd の各 traineddata と、
   システムの configs フォルダ、pdf.ttf を置き、--tessdata で指定する(README参照)。
 """
-import argparse, os, re, subprocess, sys
+import argparse, os, re, shutil, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -42,15 +48,40 @@ def tesseract(png, out, lang, psm, env):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pdf")
-    ap.add_argument("--out", required=True, help="出力名(拡張子なし)")
-    ap.add_argument("--workdir", default=None, help="途中経過の置き場(既定: <out>_work)")
+    ap.add_argument("--book", default=None, help="本の名前(= ワークスペース名)。省略するとPDFのファイル名")
+    ap.add_argument("--library", default=os.path.expanduser("~/Documents/書籍分析"),
+                    help="本の置き場(既定: ~/Documents/書籍分析)")
+    ap.add_argument("--copy", action="store_true", help="原本を移さず、コピーを置く")
+    ap.add_argument("--out", default=None, help="出力名(拡張子なし)。指定すると置き場の自動整理は行わない")
+    ap.add_argument("--workdir", default=None, help="途中経過の置き場(--out指定時のみ。既定: <out>_work)")
     ap.add_argument("--tessdata", default=os.path.expanduser("~/tessdata"))
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--pages", default=None, help="例: 10-12(省略すると全ページ)")
     a = ap.parse_args()
 
-    work = a.workdir or a.out + "_work"
+    a.pdf = os.path.abspath(os.path.expanduser(a.pdf))
+    if a.out is None:
+        # 置き場ルール: <library>/<本の名前>/{01_原本, 02_OCR結果, 99_作業用}
+        stem = os.path.splitext(os.path.basename(a.pdf))[0]
+        book_dir = os.path.join(a.library, a.book or stem)
+        orig_dir = os.path.join(book_dir, "01_原本")
+        res_dir = os.path.join(book_dir, "02_OCR結果")
+        work = os.path.join(book_dir, "99_作業用")
+        for d in (orig_dir, res_dir, work):
+            os.makedirs(d, exist_ok=True)
+        dest = os.path.join(orig_dir, os.path.basename(a.pdf))
+        if os.path.exists(a.pdf) and os.path.abspath(a.pdf) != os.path.abspath(dest):
+            if os.path.exists(dest):
+                sys.exit(f"原本の置き場に同名のファイルがあります: {dest}")
+            (shutil.copy2 if a.copy else shutil.move)(a.pdf, dest)  # 移動(--copy ならコピー)
+            print(f"原本を {'コピー' if a.copy else '移動'}: {dest}")
+        elif not os.path.exists(a.pdf) and not os.path.exists(dest):
+            sys.exit(f"PDFが見つかりません: {a.pdf}")
+        a.pdf = dest
+        a.out = os.path.join(res_dir, stem + "_ocr")
+    else:
+        work = a.workdir or a.out + "_work"
     os.makedirs(work, exist_ok=True)
     env = dict(os.environ, TESSDATA_PREFIX=a.tessdata, OMP_THREAD_LIMIT="1")
     total = int(re.search(r"Pages:\s+(\d+)", subprocess.run(
