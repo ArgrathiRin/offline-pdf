@@ -308,6 +308,20 @@ brew install ocrmypdf tesseract tesseract-lang
 ocrmypdf -l jpn+eng --skip-text input.pdf output.pdf
 ```
 
+### 6-7. 電子書籍(azw3 / mobi / epub)を取り込む(OCR不要)
+
+文字が最初からテキストなので、OCRより精度が高い。**DRM(コピー防止)付きの本は変換できない**(DRMなしのファイルだけが対象)。
+
+1. 準備(初回のみ): `brew install --cask calibre`(`.epub` を直接渡すなら不要)。
+2. 変換:
+   ```
+   python3 -I ~/offline-pdf/ebook_to_text.py ~/Desktop/book.azw3 --book 本の名前
+   ```
+3. 結果は `~/Documents/書籍分析/<本の名前>/` に整理される。原本は `01_原本`、テキスト(`<名前>.txt`)は `02_テキスト`、途中のepubは `99_作業用`。
+4. テキストは、ページ番号ではなく**章の見出し `[章N: タイトル]`** が付く。出典は章で示す。
+5. `02_テキスト/<名前>.txt` をワークスペースへ取り込む(§6-2と同じ)。チャンクサイズは 1000/150(§6-5)。
+6. 「本文を取り出せませんでした」と出たら、画像だけの本。OCR(`ocr_vertical_jp.py`)が必要。
+
 ## 7. 完全オフラインの確認
 
 1. 導入とモデルのダウンロードを、すべてネット接続ありで先に済ませる。
